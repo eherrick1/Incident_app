@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Report received{% endblock %}
+{% block content %}
+<h1>Report received — under review</h1>
+<p>Your incident report <b>{{ doc.id }}</b> has been received and routed to the
+risk manager for review. <b>Nothing has been filed with the insurance carrier yet.</b></p>
+<p>Status: <span class="badge {{ doc.status }}">{{ doc.status.replace('_',' ') }}</span></p>
+{% if doc.status == 'changes_requested' %}
+  <p>The reviewer has requested changes — check your email for a link to update your report.</p>
+{% endif %}
+<div class="banner warn">
+  <b>Reminder:</b> incident reports are internal records &mdash; do not give the
+  guest a copy of this report or the form. If the guest asks for confirmation
+  that it was filed, provide the incident ID below only. The insurance claims
+  administrator will contact them directly about any claim.
+</div>
+<p class="muted">Keep this ID for your records: {{ doc.id }}</p>
+<p><b>Something come in later?</b> Doctor's paperwork, photos, receipts &mdash;
+the property GM was e-mailed a private link for adding them to this report.
+Ask your GM, or contact {{ approver_name }} to have it re-sent.</p>
+{% endblock %}

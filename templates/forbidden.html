@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Not available{% endblock %}
+{% block content %}
+<h1>You don't have access to that</h1>
+<p>This is a reviewer page. If you're the reviewer,
+  <a href="{{ url_for('login', next=next) }}">sign in with your token</a>.</p>
+<p class="muted">If you followed a link from an e-mail, it may have been for a
+different report, or it may have expired &mdash; ask for a fresh one.</p>
+<p class="muted"><a href="{{ url_for('index') }}">Back to incident reporting</a></p>
+{% endblock %}

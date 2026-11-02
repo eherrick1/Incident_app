@@ -1,0 +1,10 @@
+# Never upload local secrets/state with the source build
+.env
+.git/
+.gitignore
+__pycache__/
+**/__pycache__/
+*.pyc
+storage/
+tests/
+.pytest_cache/

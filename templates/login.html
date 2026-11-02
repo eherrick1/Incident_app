@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Reviewer sign-in{% endblock %}
+{% block content %}
+<h1>Reviewer sign-in</h1>
+{% if error %}<p class="blocknote">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('login') }}" class="glform" style="max-width:420px">
+  <input type="hidden" name="next" value="{{ next }}">
+  <fieldset>
+    <legend>Reviewer token</legend>
+    <p class="secnote">Filing a report doesn't need this &mdash;
+      <a href="{{ url_for('index') }}">report an incident here</a>.</p>
+    <div class="field">
+      <label for="token">Token</label>
+      <input id="token" name="token" type="password" autofocus
+             autocomplete="current-password">
+    </div>
+  </fieldset>
+  <div class="actions"><button type="submit" class="primary">Sign in</button></div>
+</form>
+{% endblock %}

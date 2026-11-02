@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Upload a completed form{% endblock %}
+{% block content %}
+<h1>Upload your completed form</h1>
+<p>Accepted: the Broadspire Excel form (<code>.xlsx</code>/<code>.xls</code>), a PDF,
+or photos of a paper form (<code>.png</code>/<code>.jpg</code>…). Photos are merged
+into one PDF. We'll read the answers automatically — you'll get a chance to
+check and correct everything before it's submitted.</p>
+
+<form method="post" enctype="multipart/form-data" class="uploadbox">
+  <p><b>The completed form</b></p>
+  <input type="file" name="files" multiple required
+         accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp,.heic">
+  <p style="margin-top:1.2rem"><b>Photos &amp; supporting documents</b> (optional) —
+  <span class="muted">incident photos, CCTV stills, receipts, other documents; kept as-is for the reviewer</span></p>
+  <input type="file" name="attachments" multiple
+         accept=".png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.docx,.doc,.txt,.csv,.xlsx,.xls,.mp4,.mov">
+  <div class="actions"><button type="submit" class="primary">Upload &amp; read</button></div>
+</form>
+
+<p class="muted">Don't have the form? <a href="{{ url_for('blank_form') }}">Download the blank Excel form</a>,
+or <a href="{{ url_for('online_form') }}">fill it out online</a> instead.</p>
+{% endblock %}

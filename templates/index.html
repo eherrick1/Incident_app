@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Report an incident</h1>
+<p>Choose how you'd like to report. Every report goes to the risk manager for
+review before it is filed — nothing is sent to the insurance carrier automatically.</p>
+
+<div class="cards">
+  <a class="card" href="{{ url_for('online_form') }}">
+    <h2>Fill it out online</h2>
+    <p>Complete the General Liability form in your browser. Required fields are marked with *.</p>
+  </a>
+  <a class="card" href="{{ url_for('upload') }}">
+    <h2>Upload the Excel form</h2>
+    <p>Already filled out the Broadspire workbook? Upload the .xlsx/.xls and we'll read it.</p>
+  </a>
+  <a class="card" href="{{ url_for('upload') }}">
+    <h2>Upload a PDF or photos</h2>
+    <p>Upload a scanned form or photos of a paper form — we'll merge and read them.</p>
+  </a>
+</div>
+
+<p class="muted">Need the blank form? <a href="{{ url_for('blank_form') }}">Download the official Excel form</a>.</p>
+{% endblock %}

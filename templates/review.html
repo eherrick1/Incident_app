@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Review {{ doc.id }}{% endblock %}
+{% block content %}
+<h1>Review — {{ doc.id }}
+  <span class="badge {{ doc.status }}">{{ doc.status.replace('_',' ') }}</span></h1>
+<p class="muted">Submitted via {{ doc.intake_method.replace('_',' ') }} on
+  {{ doc.created_at[:16].replace('T',' ') }} UTC
+  {% if full_reviewer %}&middot; <a href="{{ url_for('admin') }}">back to dashboard</a>{% endif %}</p>
+{% if not full_reviewer %}
+<p class="muted">You opened this from a signed review link, so you're seeing
+this one report. Sign in with the reviewer token for the full dashboard.</p>
+{% endif %}
+
+{# ---------------- Completeness panel ---------------- #}
+<section class="panel {{ 'ok' if completeness.complete else 'bad' }}">
+  <h2>Completeness {{ '✓ all mandatory fields present' if completeness.complete else '✗ blocked' }}</h2>
+  {% if not completeness.complete %}
+    <ul class="problems">
+      {% for m in completeness.missing %}<li><b>Missing:</b> {{ m.section }} — {{ m.label }}</li>{% endfor %}
+      {% for m in completeness.malformed %}<li><b>Check format:</b> {{ m.section }} — {{ m.label }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  <details><summary>Full checklist</summary>
+    <ul class="checklist">
+    {% for c in completeness.checklist if c.required %}
+      <li class="{{ 'ok' if c.ok else 'bad' }}">{{ '🟢' if c.ok else '🔴' }} {{ c.section }} — {{ c.label }}</li>
+    {% endfor %}
+    </ul>
+  </details>
+</section>
+
+{# ---------------- Language panel ---------------- #}
+<section class="panel {{ 'ok' if pending_count == 0 else 'warn' }}">
+  <h2>Language guard —
+    {% if doc.language_findings %}
+      {{ pending_count }} of {{ doc.language_findings|length }} finding(s) awaiting your decision
+    {% else %}no risky language found{% endif %}
+  </h2>
+  {% for f in doc.language_findings %}
+    <div class="finding {{ f.decision }}">
+      <p class="fmeta"><b>{{ f.field_label }}</b> &middot; rule: <code>{{ f.rule }}</code>
+        &middot; status: <em>{{ f.decision.replace('_',' ') }}</em></p>
+      <p><b>Flagged:</b> <mark>{{ f.phrase }}</mark></p>
+      <p class="fsentence">In: “{{ f.sentence }}”</p>
+      <p class="freason"><b>Why:</b> {{ f.reason }}</p>
+      {% if f.suggestion_is_removal %}
+        <p><b>Suggestion:</b> remove this sentence from the record.</p>
+      {% else %}
+        <p><b>Suggested rewrite:</b> “{{ f.suggestion }}”</p>
+      {% endif %}
+      {% if f.decision == 'pending' %}
+      <form method="post" action="{{ url_for('review_language', incident_id=doc.id, finding_id=f.id) }}" class="frow">
+        <button name="decision" value="accept" class="primary">Accept rewrite</button>
+        <button name="decision" value="keep">Keep original</button>
+        <details class="inlineedit">
+          <summary>Edit…</summary>
+          <textarea name="edited_text" rows="3">{{ f.suggestion }}</textarea>
+          <button name="decision" value="edit">Apply my edit</button>
+        </details>
+      </form>
+      {% elif f.final_text is not none %}
+        <p class="muted">Final text: “{{ f.final_text }}” — {{ f.decided_by }} @ {{ (f.decided_at or '')[:16].replace('T',' ') }}</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+  {% if doc.original_narratives %}
+    <details><summary>Reporter's original narrative text (never altered)</summary>
+      {% for k, v in doc.original_narratives.items() if v %}
+        <p><b>{{ k.replace('_',' ')|title }}:</b> {{ v }}</p>
+      {% endfor %}
+    </details>
+  {% endif %}
+</section>
+
+{# ---------------- Side-by-side: original left, parsed record right ---------------- #}
+<div class="split">
+  <section class="left">
+    <h2>Original submission</h2>
+    {% if original_pdf %}
+      <iframe src="{{ url_for('file_view', incident_id=doc.id, name='converted.pdf') }}"
+              title="Original upload"></iframe>
+    {% elif doc.intake_method == 'online_form' %}
+      <p class="muted">Submitted via the online form — the parsed record on the right
+      <i>is</i> the original. The reporter's untouched narrative text is preserved in
+      the language panel above.</p>
+    {% else %}
+      <p class="muted">No PDF preview available.
+        {% for name in doc.files %}<a href="{{ url_for('file_view', incident_id=doc.id, name=name) }}">{{ name }}</a> {% endfor %}</p>
+    {% endif %}
+
+    {% if doc.supplements %}
+    <h2>Notes added after filing</h2>
+    <p class="muted">Added through the add-documents link. The name is typed by
+    whoever used the link and is not verified.</p>
+    <ul>
+      {% for s in doc.supplements %}
+        <li><b>{{ s.by }}</b> <span class="muted">(name self-reported)</span>
+          ({{ s.ts[:16].replace('T',' ') }} UTC): {{ s.note }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if attachments %}
+    <h2>Supporting attachments ({{ attachments|length }})</h2>
+    <ul class="attachlist">
+      {% for a in attachments %}
+        {% set disp = a.split('_', 2)[2] if a.count('_') >= 2 else a %}
+        <li><a href="{{ url_for('file_view', incident_id=doc.id, name=a) }}" target="_blank">{{ disp }}</a>
+        {% if disp.lower().endswith(('.png','.jpg','.jpeg','.gif','.webp')) %}
+          <br><img class="attachthumb" src="{{ url_for('file_view', incident_id=doc.id, name=a) }}" alt="{{ disp }}">
+        {% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <section class="right">
+    <h2>Parsed record (editable)</h2>
+    {% if doc.ai_extracted_keys %}
+      <p class="muted">{{ doc.ai_extracted_keys|length }} field(s) marked
+      <span class="aitag">AI-read</span> were filled in by reading the upload
+      and the reporter left them as-is. Worth checking against the original.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('review_save', incident_id=doc.id) }}">
+      {% for section in sections %}
+        <fieldset><legend>{{ section }}</legend>
+        {% for f in fields if f.section == section %}
+          {% set val = doc.fields.get(f.key, '') %}
+          {% set ai = f.key in (doc.ai_extracted_keys or []) %}
+          <div class="field{{ ' ai' if ai }}">
+            <label>{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}
+              {% if ai %}<span class="aitag" title="Read from the upload by AI and left unchanged by the reporter — check it against the original on the left">AI-read</span>{% endif %}
+            </label>
+            {% if f.type == 'textarea' %}
+              <textarea name="{{ f.key }}" rows="3">{{ val }}</textarea>
+            {% elif f.type == 'date' and (not val or val|iso_date) %}
+              <input name="{{ f.key }}" type="date" value="{{ val|iso_date }}">
+            {% elif f.type == 'time' and (not val or val|iso_time) %}
+              <input name="{{ f.key }}" type="time" value="{{ val|iso_time }}">
+            {% elif f.type in ('yn', 'ynu') %}
+              {# Was a free-text box, which is why typing "N" used to block an
+                 approval — the checker only accepts yes / no / unknown. #}
+              <select name="{{ f.key }}">
+                <option value="">— select —</option>
+                <option value="yes" {{ 'selected' if val == 'yes' }}>Yes</option>
+                <option value="no" {{ 'selected' if val == 'no' }}>No</option>
+                {% if f.type == 'ynu' %}<option value="unknown" {{ 'selected' if val == 'unknown' }}>Unknown</option>{% endif %}
+              </select>
+            {% elif f.type == 'choice' %}
+              <select name="{{ f.key }}">
+                <option value="">— select —</option>
+                {% for c in f.choices %}
+                  <option value="{{ c }}" {{ 'selected' if val == c }}>{{ c.replace('_', ' / ')|title }}</option>
+                {% endfor %}
+              </select>
+            {% else %}
+              <input name="{{ f.key }}" value="{{ val }}">
+            {% endif %}
+          </div>
+        {% endfor %}
+        </fieldset>
+      {% endfor %}
+      <button type="submit">Save field edits</button>
+    </form>
+  </section>
+</div>
+
+{% if revise_url %}
+<section class="panel warn">
+  <h2>Waiting on the team</h2>
+  <p>The reporter was sent this link to update the report (or copy it and send it
+  to them yourself if no email was on file):</p>
+  <input type="text" readonly value="{{ revise_url }}" onclick="this.select()" style="width:100%">
+  <p class="muted">The link is signed — only someone with it can edit this report.
+  When they resubmit, you'll get a fresh review email.</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Add-documents link</h2>
+  <p class="muted">Anyone with this link can add files or notes to this report (never view
+  or change it) &mdash; the GM got it by email when the report was filed. Re-send it if
+  paperwork comes in later:</p>
+  <input type="text" readonly value="{{ addendum_url }}" onclick="this.select()" style="width:100%">
+</section>
+
+{# ---------------- Outputs (after approval) ---------------- #}
+{% if doc.status == 'approved' %}
+<section class="panel ok">
+  <h2>Approved outputs</h2>
+  <ul>
+    {% for name in ['approved_form.pdf', 'approved_form.xlsx', 'approved_form.docx'] if name in doc.files %}
+      <li><a href="{{ url_for('file_view', incident_id=doc.id, name=name) }}">{{ name }}</a>
+        {% if name == 'approved_form.pdf' %} — official artifact; send to Broadspire:
+        nol@choosebroadspire.com, fax 1-800-245-9927, or FileAClaim at choosebroadspire.com{% endif %}</li>
+    {% endfor %}
+    {% if full_reviewer %}<li><a href="{{ url_for('register_download') }}">incident_register.xlsx</a></li>{% endif %}
+  </ul>
+  {% if doc.carrier_sent_at %}
+    <p><b>✓ Claim sent to {{ carrier_email }}</b> on
+       {{ doc.carrier_sent_at[:16].replace('T',' ') }} UTC (see audit trail).</p>
+  {% endif %}
+  {% if 'approved_form.pdf' in doc.files %}
+    {% if carrier_ok %}
+    <form method="post" action="{{ url_for('review_send_carrier', incident_id=doc.id) }}"
+          onsubmit="return confirm('Email the claim to {{ carrier_email }} now? You will be CC\'d.');">
+      <label style="display:block;margin:.4rem 0">
+        <input type="checkbox" name="include_attachments" checked>
+        Include supporting attachments (photos/documents)
+      </label>
+      <button type="submit" class="primary">
+        {{ 'Send claim again' if doc.carrier_sent_at else 'Send claim to ' + carrier_email }}
+      </button>
+    </form>
+    {% else %}
+    <div class="banner warn" style="margin-top:.6rem">
+      <b>Do not file this with Broadspire.</b>
+      <p style="margin:.4rem 0 0">{{ carrier_block_reason }}</p>
+      <p style="margin:.4rem 0 0" class="muted">The approved PDF above is still
+      the correct artifact &mdash; download it and send it to the right carrier.</p>
+    </div>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+
+{# ---------------- Actions ---------------- #}
+{% if doc.status in ('pending_review', 'changes_requested') %}
+<section class="panel actionsbar">
+  <h2>Decision</h2>
+  {% if not approvable %}
+    <p class="blocknote">Approve is blocked until the completeness check passes and
+    every language finding has a decision.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('review_action', incident_id=doc.id) }}">
+    <textarea name="notes" rows="2" placeholder="Notes to the reporter (for request-changes) or rejection reason"></textarea>
+    <label style="display:block;margin:.2rem 0 .5rem;font-size:.9rem">
+      <input type="checkbox" name="pdf_only" checked>
+      Approve with the filled PDF only &mdash; skip the Excel and Word copies
+      <small class="muted">(the PDF is the artifact that gets filed; the others
+      are convenience copies)</small>
+    </label>
+    <div class="frow">
+      <button name="action" value="approve" class="primary" {{ '' if approvable else 'disabled' }}>Approve &amp; release</button>
+      <button name="action" value="request_changes">Request changes</button>
+      <button name="action" value="reject" class="danger">Reject</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{# ---------------- Audit trail ---------------- #}
+<details class="audit"><summary>Audit trail ({{ doc.audit|length }} entries)</summary>
+  <table class="list">
+    <tr><th>When (UTC)</th><th>Action</th><th>Actor</th><th>Detail</th></tr>
+    {% for a in doc.audit %}
+      <tr><td>{{ a.ts[:19].replace('T',' ') }}</td><td>{{ a.action }}</td>
+          <td>{{ a.actor }}</td><td>{{ a.detail }}</td></tr>
+    {% endfor %}
+  </table>
+</details>
+{% endblock %}

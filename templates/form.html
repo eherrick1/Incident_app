@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}GL Incident Form{% endblock %}
+{% block content %}
+{% if mode == "confirm" %}
+  <div class="banner info">
+    <b>Check what we read from your upload.</b> Fields below were auto-read from your
+    file — please correct anything we misread, fill in anything missing, then submit.
+  </div>
+{% elif mode == "revise" %}
+  <div class="banner warn">
+    <b>Changes requested by the reviewer:</b>
+    <blockquote>{{ notes or "(no notes provided)" }}</blockquote>
+    Update your report below and resubmit.
+  </div>
+{% endif %}
+
+<h1>General Liability Reporting Form</h1>
+<p class="muted">(*) marks a required field. You can TAB through the fields in order.
+Sections appear and disappear as you answer — you'll only be asked for what this
+kind of incident actually needs.</p>
+
+<div class="hints">
+  <b>Writing the descriptions — quick guide:</b>
+  <ul>{% for h in hints %}<li>{{ h }}</li>{% endfor %}</ul>
+</div>
+
+<form method="post" action="{{ action }}" enctype="multipart/form-data" class="glform" id="glform">
+  {% if hotels %}
+  <fieldset>
+    <legend>Which hotel?</legend>
+    <p class="secnote">Pick your property to fill in the business and location details
+    automatically. You can still edit anything it fills in.</p>
+    <select id="hotel_picker" style="max-width:480px">
+      <option value="">&mdash; select your hotel &mdash;</option>
+      {% for h in hotels %}<option value="{{ loop.index0 }}">{{ h.name }}</option>{% endfor %}
+      <option value="other">Not listed / other location</option>
+    </select>
+  </fieldset>
+  {% endif %}
+
+  {% for section in sections %}
+    {% set optional = section in OPTIONAL_SECTIONS %}
+    <fieldset data-section="{{ section }}" class="{{ 'gate' if section == 'Start here' }}">
+      <legend>{{ section }}</legend>
+      {% if SECTION_NOTES.get(section) %}
+        <p class="secnote">{{ SECTION_NOTES[section] }}</p>
+      {% endif %}
+      {% if optional %}<details><summary>This rarely applies — open it only if it does</summary>{% endif %}
+      <div class="grid">
+      {% for f in fields if f.section == section %}
+        <div class="field {{ 'wide' if f.type == 'textarea' else '' }}" data-key="{{ f.key }}">
+          <label for="{{ f.key }}">
+            {{ f.label }}{% if f.required is true %} <span class="req">*</span>
+            {% elif f.required is string %} <span class="req cond" title="Required depending on other answers">*</span>{% endif %}
+          </label>
+          {% set val = values.get(f.key, '') %}
+          {% if f.type == 'textarea' %}
+            <textarea id="{{ f.key }}" name="{{ f.key }}" rows="{{ 6 if f.key == 'accident_description' else 3 }}"
+              {% if f.placeholder %}placeholder="{{ f.placeholder }}"
+              {% elif f.narrative %}placeholder="Describe what was observed and what the guest said — not why it happened."{% endif %}>{{ val }}</textarea>
+          {% elif f.type in ('yn', 'ynu') %}
+            <select id="{{ f.key }}" name="{{ f.key }}">
+              <option value="">— select —</option>
+              <option value="yes" {{ 'selected' if val == 'yes' }}>Yes</option>
+              <option value="no" {{ 'selected' if val == 'no' }}>No</option>
+              {% if f.type == 'ynu' %}<option value="unknown" {{ 'selected' if val == 'unknown' }}>Unknown</option>{% endif %}
+            </select>
+          {% elif f.type == 'choice' %}
+            <select id="{{ f.key }}" name="{{ f.key }}">
+              <option value="">— select —</option>
+              {% for c in f.choices %}
+                <option value="{{ c }}" {{ 'selected' if val == c }}>{{ c.replace('_', ' / ')|title }}</option>
+              {% endfor %}
+            </select>
+          {% elif f.type == 'date' %}
+            {% set iso = val|iso_date %}
+            {% if val and not iso %}
+              {# Came off an upload in a shape we can't parse — keep it visible
+                 and editable rather than silently blanking someone's answer. #}
+              <input id="{{ f.key }}" name="{{ f.key }}" value="{{ val }}" placeholder="MM/DD/YYYY">
+            {% else %}
+              <input id="{{ f.key }}" name="{{ f.key }}" type="date" value="{{ iso }}">
+            {% endif %}
+          {% elif f.type == 'time' %}
+            {% set iso = val|iso_time %}
+            {% if val and not iso %}
+              <input id="{{ f.key }}" name="{{ f.key }}" value="{{ val }}" placeholder="HH:MM AM/PM">
+            {% else %}
+              <input id="{{ f.key }}" name="{{ f.key }}" type="time" value="{{ iso }}">
+            {% endif %}
+          {% else %}
+            <input id="{{ f.key }}" name="{{ f.key }}" value="{{ val }}"
+                   type="{{ 'email' if f.type == 'email' else 'text' }}">
+          {% endif %}
+          {% if f.hint %}<small class="fhint">{{ f.hint }}</small>{% endif %}
+        </div>
+      {% endfor %}
+      </div>
+      {% if optional %}</details>{% endif %}
+    </fieldset>
+  {% endfor %}
+
+  <fieldset>
+    <legend>Photos &amp; supporting documents (optional)</legend>
+    <p class="secnote">Attach photos of the scene or condition, CCTV stills, receipts,
+    or other supporting documents. They are kept with the report exactly as uploaded
+    and go to the reviewer. Accepted: photos, PDF, Word/Excel, text, short video.</p>
+    {% if attachments %}
+      <p><b>Already attached:</b>
+        {% for a in attachments %}<code>{{ a.split('_', 2)[2] if a.count('_') >= 2 else a }}</code>{{ ", " if not loop.last }}{% endfor %}
+      </p>
+    {% endif %}
+    <input type="file" name="attachments" multiple
+           accept=".png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.docx,.doc,.txt,.csv,.xlsx,.xls,.mp4,.mov">
+  </fieldset>
+  <div class="actions">
+    <button type="submit" class="primary">
+      {{ 'Resubmit report' if mode == 'revise' else 'Submit report for review' }}
+    </button>
+  </div>
+</form>
+
+<script>
+// ---------------------------------------------------------------------------
+// Hotel picker: autofill Section A (business) + Section B (loss location).
+//
+// The picker OWNS these fields. Selecting a property overwrites all of them,
+// including with blanks. That matters: the old code only wrote a field when the
+// new hotel had a value for it, so switching from a property with an ownership
+// entity to one without left the previous hotel's entity sitting in the box —
+// on a form that goes to the carrier. Same for the loss location, which was
+// only filled when empty and so kept naming the hotel you'd moved away from.
+// ---------------------------------------------------------------------------
+const HOTELS = {{ hotels|tojson }};
+const HOTEL_FIELD_MAP = ["parent_co_name","subsidiary_name","business_address",
+  "business_city_state_zip","business_county","business_phone","location_code","policy_number"];
+const picker = document.getElementById("hotel_picker");
+let appliedHotel = null;          // what the picker last wrote, so we can undo it
+
+function setVal(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function applyHotel(h) {
+  HOTEL_FIELD_MAP.forEach(k => setVal(k, h[k] || ""));
+  // Only claim the loss location if it's empty or still holds the previous
+  // pick — never overwrite a location the reporter typed themselves.
+  const loc = document.getElementById("loss_location_name");
+  if (loc && (!loc.value || (appliedHotel && loc.value === appliedHotel.name))) {
+    loc.value = h.name;
+  }
+  const prem = document.getElementById("on_insured_premises");
+  if (prem && !prem.value) { prem.value = "yes"; prem.dispatchEvent(new Event("change")); }
+  appliedHotel = h;
+}
+
+function clearHotel() {
+  // "Not listed": clear what the picker put there, leave anything hand-typed.
+  if (!appliedHotel) return;
+  HOTEL_FIELD_MAP.forEach(k => {
+    const el = document.getElementById(k);
+    if (el && el.value === (appliedHotel[k] || "")) el.value = "";
+  });
+  const loc = document.getElementById("loss_location_name");
+  if (loc && loc.value === appliedHotel.name) loc.value = "";
+  appliedHotel = null;
+}
+
+if (picker) picker.addEventListener("change", () => {
+  if (picker.value === "other") { clearHotel(); applyVisibility(); return; }
+  if (picker.value === "") return;
+  const h = HOTELS[parseInt(picker.value)];
+  if (!h) return;
+  applyHotel(h);
+  applyVisibility();
+});
+
+// ---------------------------------------------------------------------------
+// Progressive disclosure. VIS.sections / VIS.fields hold lists of clauses
+// ({field, values}); every clause must match for the block to show. An
+// unanswered gate hides the block — you can't put an answer somewhere it
+// doesn't belong if you can't see the box.
+// ---------------------------------------------------------------------------
+const VIS = {{ conditions_json | tojson }};
+
+function gateValue(key) {
+  const el = document.getElementById(key);
+  return el ? (el.value || "").trim() : "";
+}
+
+function clausesMatch(clauses) {
+  return (clauses || []).every(c => c.values.includes(gateValue(c.field)));
+}
+
+// Hidden inputs are disabled so the browser never posts them; the server
+// re-checks anyway (fields.strip_inapplicable).
+function setShown(container, shown) {
+  if (!container) return;
+  container.style.display = shown ? "" : "none";
+  container.querySelectorAll("input, select, textarea").forEach(el => {
+    if (el.type !== "file") el.disabled = !shown;
+  });
+}
+
+// Section names carry spaces, dots and ampersands — match on the dataset value
+// rather than building an attribute selector out of them.
+function sectionEl(name) {
+  return [...document.querySelectorAll("fieldset[data-section]")]
+    .find(el => el.dataset.section === name) || null;
+}
+
+function applyVisibility() {
+  for (const section in VIS.sections) {
+    setShown(sectionEl(section), clausesMatch(VIS.sections[section]));
+  }
+  for (const key in VIS.fields) {
+    const el = document.querySelector(`.field[data-key="${key}"]`);
+    if (!el) continue;
+    // A field inside a hidden section stays hidden regardless.
+    const section = el.closest("fieldset[data-section]");
+    const sectionOk = !section || section.style.display !== "none";
+    setShown(el, sectionOk && clausesMatch(VIS.fields[key]));
+  }
+}
+
+// Listen on every field that gates something.
+const gates = new Set();
+Object.values(VIS.sections).forEach(cs => cs.forEach(c => gates.add(c.field)));
+Object.values(VIS.fields).forEach(cs => cs.forEach(c => gates.add(c.field)));
+gates.forEach(key => {
+  const el = document.getElementById(key);
+  if (el) el.addEventListener("change", applyVisibility);
+});
+applyVisibility();
+</script>
+{% endblock %}

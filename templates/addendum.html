@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Add to report {{ doc.id }}{% endblock %}
+{% block content %}
+<h1>Add documents to incident report</h1>
+<p><b>{{ doc.id }}</b>{% if location %} &middot; {{ location }}{% endif %}
+{% if date %} &middot; date of accident {{ date }}{% endif %}
+&middot; status: <span class="badge {{ doc.status }}">{{ doc.status.replace('_',' ') }}</span></p>
+
+<p>Use this page to add anything that came in after the report was filed:
+doctor's paperwork, medical bills, photos, receipts, CCTV stills, or a written
+note. Everything you add goes to the risk manager &mdash; nothing on the
+original report changes, and this page does not show the report itself.</p>
+
+<form method="post" enctype="multipart/form-data" class="glform">
+  <fieldset>
+    <legend>Who is adding this?</legend>
+    <div class="field" style="max-width:360px">
+      <label for="added_by">Your name and role</label>
+      <input id="added_by" name="added_by" placeholder="e.g. Jane Smith, GM" required>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Files</legend>
+    <input type="file" name="attachments" multiple
+           accept=".png,.jpg,.jpeg,.gif,.webp,.heic,.pdf,.docx,.doc,.txt,.csv,.xlsx,.xls,.mp4,.mov">
+  </fieldset>
+  <fieldset>
+    <legend>Note (optional)</legend>
+    <textarea name="note" rows="4" placeholder="e.g. Guest provided the attached doctor's note on 7/15. Original photos of the walkway also attached."></textarea>
+  </fieldset>
+  <div class="actions"><button type="submit" class="primary">Add to report</button></div>
+</form>
+<p class="muted">Keep this link &mdash; it stays valid if more comes in later.</p>
+{% endblock %}

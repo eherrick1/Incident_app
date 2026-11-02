@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Link expired{% endblock %}
+{% block content %}
+<h1>This link has expired</h1>
+{% if purpose == "revise" %}
+  <p>Links for updating a report stay active for {{ days }} days. This one is
+  older than that, so it no longer opens the report.</p>
+{% elif purpose == "addendum" %}
+  <p>Add-documents links stay active for {{ days }} days after the report is
+  filed. This one is older than that.</p>
+{% else %}
+  <p>Review links stay active for {{ days }} days. This one is older than that.</p>
+{% endif %}
+<p>Nothing is lost &mdash; the report itself is unaffected. Contact
+{{ approver }} (<a href="mailto:{{ approver_email }}">{{ approver_email }}</a>)
+and a fresh link can be sent.</p>
+<p class="muted"><a href="{{ url_for('index') }}">Back to incident reporting</a></p>
+{% endblock %}
