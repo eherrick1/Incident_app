@@ -19,6 +19,7 @@ from flask import (Flask, abort, flash, redirect, render_template, request,
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 import config
+import shared_settings
 import fields as F
 import intake
 import language_guard as lg
@@ -203,8 +204,13 @@ def _reject_cross_origin_writes():
         abort(403, "Cross-site form submission refused.")
     return None
 app.jinja_env.globals.update(SECTION_NOTES=F.SECTION_NOTES,
-                             OPTIONAL_SECTIONS=F.OPTIONAL_SECTIONS,
-                             approver_name=config.APPROVER_NAME)
+                             OPTIONAL_SECTIONS=F.OPTIONAL_SECTIONS)
+
+
+@app.context_processor
+def _live_settings():
+    # Per request, so a change on the portal's Settings page shows up here.
+    return {"approver_name": config.approver_name()}
 app.jinja_env.filters["iso_date"] = F.to_iso_date
 app.jinja_env.filters["iso_time"] = F.to_iso_time
 
@@ -239,8 +245,8 @@ def _link_expired(purpose):
     """A dead end that explains itself, rather than a bare 403."""
     return render_template("link_expired.html", purpose=purpose,
                            days=LINK_MAX_AGE[purpose] // _DAY,
-                           approver=config.APPROVER_NAME,
-                           approver_email=config.APPROVER_EMAIL), 410
+                           approver=config.approver_name(),
+                           approver_email=config.approver_email()), 410
 
 
 # --------------------------------------------------------------------------- #
@@ -433,6 +439,38 @@ def index():
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+
+
+# --- Portal Settings page: server-to-server, authenticated by ADMIN_TOKEN ----
+def _settings_caller_ok():
+    supplied = request.headers.get("X-Admin-Token", "")
+    return bool(config.ADMIN_TOKEN and supplied
+                and hmac.compare_digest(supplied, config.ADMIN_TOKEN))
+
+
+@app.get("/settings/effective")
+def settings_effective():
+    """What this tool is using right now, so the Settings page can show it."""
+    if not _settings_caller_ok():
+        return {"error": "not authorized"}, 403
+    shared_settings.load(force=True)
+    return {"approver_name": config.approver_name(),
+            "approver_email": config.approver_email(),
+            "cc": config.mail_cc(),
+            "carrier_email": config.carrier_email(),
+            "sending": shared_settings.sender_label()}
+
+
+@app.post("/settings/test-email")
+def settings_test_email():
+    if not _settings_caller_ok():
+        return {"error": "not authorized"}, 403
+    to = (request.get_json(silent=True) or {}).get("to", "")
+    if not mailer.valid_address(to):
+        return {"ok": False, "error": "invalid address"}, 400
+    shared_settings.load(force=True)
+    ok, via, err = mailer.send_test(to)
+    return {"ok": ok, "via": via, "error": err}, (200 if ok else 502)
 
 
 @app.get("/blank-form.xlsx")
@@ -644,7 +682,7 @@ def addendum(incident_id):
             storage.get_store().save(doc)
             mailer.send_supplement_notice(doc, review_link(doc["id"]), added_by, note, saved)
             flash(f"Added {saved} file(s){' and a note' if note else ''} to {doc['id']}. "
-                  f"{config.APPROVER_NAME} has been notified.")
+                  f"{config.approver_name()} has been notified.")
         else:
             flash("Nothing was attached - choose files or write a note, then submit.")
     f = doc["fields"]
@@ -676,7 +714,7 @@ def review(incident_id):
                            revise_url=(revise_link(doc["id"])
                                        if doc["status"] == "changes_requested" else None),
                            addendum_url=addendum_link(doc["id"]),
-                           carrier_email=config.CARRIER_EMAIL,
+                           carrier_email=config.carrier_email(),
                            carrier_ok=_carrier_ok(doc)[0],
                            carrier_block_reason=_carrier_ok(doc)[1],
                            full_reviewer=_full_reviewer(),
@@ -767,15 +805,15 @@ def review_action(incident_id):
             return redirect(url_for("review", incident_id=incident_id))
         pdf_only = bool(request.form.get("pdf_only"))
         artifacts, pdf_bytes = outputs.generate_approval_outputs(
-            doc, approver=config.APPROVER_EMAIL, pdf_only=pdf_only)
+            doc, approver=config.approver_email(), pdf_only=pdf_only)
         doc["status"] = "approved"
-        storage.audit(doc, "approved", actor=config.APPROVER_EMAIL,
+        storage.audit(doc, "approved", actor=config.approver_email(),
                       detail=", ".join(artifacts))
         allowed, reason = _carrier_ok(doc)
         if config.AUTO_SEND_TO_CARRIER and pdf_bytes and allowed:
             sent = mailer.send_to_carrier(doc, pdf_bytes)
             storage.audit(doc, "sent_to_carrier" if sent else "carrier_send_failed",
-                          detail=config.CARRIER_EMAIL)
+                          detail=config.carrier_email())
         elif config.AUTO_SEND_TO_CARRIER and pdf_bytes and not allowed:
             storage.audit(doc, "carrier_send_blocked", actor="system", detail=reason)
         storage.get_store().save(doc)
@@ -786,7 +824,7 @@ def review_action(incident_id):
         notes = request.form.get("notes", "").strip()
         doc["status"] = "changes_requested"
         doc["change_notes"] = notes
-        storage.audit(doc, "changes_requested", actor=config.APPROVER_EMAIL, detail=notes)
+        storage.audit(doc, "changes_requested", actor=config.approver_email(), detail=notes)
         storage.get_store().save(doc)
         hotel = _hotel_for(doc)
         emailed = mailer.send_changes_request(doc, notes, revise_link(doc["id"]),
@@ -799,7 +837,7 @@ def review_action(incident_id):
     elif action == "reject":
         reason = request.form.get("notes", "").strip()
         doc["status"] = "rejected"
-        storage.audit(doc, "rejected", actor=config.APPROVER_EMAIL, detail=reason)
+        storage.audit(doc, "rejected", actor=config.approver_email(), detail=reason)
         storage.get_store().save(doc)
         flash("Report rejected and archived.")
     else:
@@ -819,7 +857,7 @@ def review_send_carrier(incident_id):
     if not allowed:
         # Guarded server-side as well as in the template: the button is hidden,
         # but a stale tab or a bookmarked POST must not get through either.
-        storage.audit(doc, "carrier_send_blocked", actor=config.APPROVER_EMAIL,
+        storage.audit(doc, "carrier_send_blocked", actor=config.approver_email(),
                       detail=reason)
         storage.get_store().save(doc)
         flash(f"Not sent. {reason}")
@@ -843,11 +881,11 @@ def review_send_carrier(incident_id):
     sent = mailer.send_to_carrier(doc, pdf, extra_attachments=extra)
     if sent:
         doc["carrier_sent_at"] = storage.now_iso()
-        storage.audit(doc, "sent_to_carrier", actor=config.APPROVER_EMAIL,
-                      detail=f"{config.CARRIER_EMAIL} (+{len(extra)} attachment(s)); CC {config.APPROVER_EMAIL}")
-        flash(f"Claim sent to {config.CARRIER_EMAIL} (you were CC'd).")
+        storage.audit(doc, "sent_to_carrier", actor=config.approver_email(),
+                      detail=f"{config.carrier_email()} (+{len(extra)} attachment(s)); CC {config.approver_email()}")
+        flash(f"Claim sent to {config.carrier_email()} (you were CC'd).")
     else:
-        storage.audit(doc, "carrier_send_failed", actor=config.APPROVER_EMAIL,
+        storage.audit(doc, "carrier_send_failed", actor=config.approver_email(),
                       detail="SMTP not configured or send error")
         flash("Send failed (or SMTP not configured) — download the PDF and send manually.")
     storage.get_store().save(doc)

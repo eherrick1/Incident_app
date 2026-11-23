@@ -4,6 +4,8 @@ cloud (Firestore + GCS) when the env vars are set, SQLite + ./storage locally.
 import os
 from pathlib import Path
 
+import shared_settings
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # Load .env if present (same process as the capital/expense apps).
@@ -88,6 +90,23 @@ MAIL_CC = [a.strip() for a in os.environ.get("MAIL_CC", "").split(",") if a.stri
 # --- Carrier destination (auto-send OFF by default; reviewer sends manually) ----
 AUTO_SEND_TO_CARRIER = os.environ.get("AUTO_SEND_TO_CARRIER", "false").lower() == "true"
 CARRIER_EMAIL = os.environ.get("CARRIER_EMAIL", "nol@choosebroadspire.com")
+
+# --- Live values: the portal's Settings page overrides the env defaults above ----
+def approver_email():
+    return shared_settings.get("incident", "approver_email", APPROVER_EMAIL)
+
+
+def approver_name():
+    return shared_settings.get("incident", "approver_name", APPROVER_NAME)
+
+
+def mail_cc():
+    return shared_settings.get_list("incident", "cc", MAIL_CC)
+
+
+def carrier_email():
+    return shared_settings.get("incident", "carrier_email", CARRIER_EMAIL)
+
 
 # --- Storage: cloud when configured, local otherwise ----------------------------
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "")            # e.g. incidents-capital-processor

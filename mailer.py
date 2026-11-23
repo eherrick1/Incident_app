@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from markupsafe import escape
 
 import config
+import shared_settings
 
 
 def h(value, default="—"):
@@ -32,9 +33,17 @@ def h(value, default="—"):
     return escape(str(value))
 
 
+def _smtp_configured() -> bool:
+    return bool(config.EMAIL_SENDER and config.EMAIL_PASSWORD and config.SMTP_SERVER)
+
+
 def is_configured() -> bool:
-    return bool(config.EMAIL_SENDER and config.EMAIL_PASSWORD
-                and config.APPROVER_EMAIL and config.SMTP_SERVER)
+    return bool(config.approver_email()
+                and (shared_settings.use_service() or _smtp_configured()))
+
+
+# Why the last send failed, for the portal's "Send test email" button.
+last_error = ""
 
 
 _ADDR_RE = re.compile(r"^[^@\s,;:<>\"]+@[^@\s,;:<>\"]+\.[^@\s,;:<>\"]+$")
@@ -79,16 +88,30 @@ def _send(to, subject, html, attachments=None, cc=None):
         print(f"[mailer] refusing to send: recipient failed validation "
               f"({_redact_addr(to)})")
         return False
+    global last_error
     to = _header_safe(to)
     cc = [_header_safe(c) for c in (cc or []) if valid_address(c)]
-    if not is_configured():
+    via_service = shared_settings.use_service()
+    if not (via_service or _smtp_configured()):
+        last_error = "no sending method is configured"
         print(f"[mailer] (dry-run, SMTP not configured) to={_redact_addr(to)}")
         return False
+    if via_service:
+        all_cc = list(dict.fromkeys(cc + config.mail_cc()))
+        try:
+            shared_settings.send_via_service([to], subject, html, cc=all_cc,
+                                             attachments=attachments)
+            last_error = ""
+            return True
+        except Exception as e:  # never break the workflow over email
+            last_error = str(e)[:300]
+            print(f"[mailer] email service send failed to {_redact_addr(to)}: {last_error}")
+            return False
     msg = MIMEMultipart()
     msg["From"] = config.EMAIL_SENDER
     msg["To"] = to
     recipients = [to]
-    all_cc = list(cc or []) + config.MAIL_CC
+    all_cc = list(cc or []) + config.mail_cc()
     if all_cc:
         msg["Cc"] = ", ".join(all_cc)
         recipients += all_cc
@@ -111,11 +134,22 @@ def _send(to, subject, html, attachments=None, cc=None):
                     s.starttls(context=ssl.create_default_context())
                 s.login(username, config.EMAIL_PASSWORD)
                 s.sendmail(config.EMAIL_SENDER, recipients, msg.as_string())
+        last_error = ""
         return True
     except Exception as e:  # never break the workflow over email
         # Exception text can echo the recipient — log the type, not the message.
+        last_error = f"Outlook send failed ({type(e).__name__})"
         print(f"[mailer] send failed to {_redact_addr(to)}: {type(e).__name__}")
         return False
+
+
+def send_test(to):
+    """The portal's "Send test email" button. Returns (ok, via, error)."""
+    via = shared_settings.sender_label()
+    html = ("<p>This is a test email from the <b>Incident Reports</b> tool.</p>"
+            f"<p>It was sent through {h(via)}. If you can read this, the tool's email works.</p>")
+    ok = _send(to, "Test email - Incident Reports", html)
+    return ok, via, ("" if ok else last_error or "not sent")
 
 
 def send_approval_request(doc, review_url):
@@ -123,7 +157,7 @@ def send_approval_request(doc, review_url):
     subject = (f"New incident report — {f.get('loss_location_name', 'unknown location')}, "
                f"{f.get('date_of_accident', 'date n/a')} — ready for review")
     html = f"""
-    <p>Hi {h(config.APPROVER_NAME)},</p>
+    <p>Hi {h(config.approver_name())},</p>
     <p>A new general-liability incident report was submitted and is waiting for
     your review. Nothing has been filed or sent to the carrier.</p>
     <ul>
@@ -135,7 +169,7 @@ def send_approval_request(doc, review_url):
     </ul>
     <p><a href="{review_url}">Open the review screen</a></p>
     """
-    return _send(config.APPROVER_EMAIL, subject, html)
+    return _send(config.approver_email(), subject, html)
 
 
 def send_changes_request(doc, notes, revise_url, gm_email=None):
@@ -170,7 +204,7 @@ def send_gm_notice(doc, gm_name, gm_email, addendum_url):
     <p>An incident report was just filed for <b>{h(f.get('loss_location_name'), default='your property')}</b>
     (date of accident {h(f.get('date_of_accident'), default='-')}), reported by
     {h(f.get('reported_by_name'), default='-')}. Reference: <b>{h(doc['id'])}</b>.</p>
-    <p>It is now with {h(config.APPROVER_NAME)} for review. <b>As GM, you own the
+    <p>It is now with {h(config.approver_name())} for review. <b>As GM, you own the
     follow-up on this incident</b>: if more information is needed you may receive
     a change-request email, and any documents that come in later (doctor's
     paperwork, photos, receipts) should be added to the report.</p>
@@ -197,7 +231,7 @@ def send_supplement_notice(doc, review_url, added_by, note, n_files):
     {f'<li><b>Note:</b> {h(note)}</li>' if note else ''}</ul>
     <p><a href="{review_url}">Open the review screen</a></p>
     """
-    return _send(config.APPROVER_EMAIL, f"New documents on incident report {doc['id']}", html)
+    return _send(config.approver_email(), f"New documents on incident report {doc['id']}", html)
 
 
 def send_approved_notice(doc, attachments=None):
@@ -217,10 +251,10 @@ def send_to_carrier(doc, pdf_bytes, extra_attachments=None):
     atts = [(f"{doc['id']}_broadspire_gl_form.pdf", pdf_bytes)]
     atts += list(extra_attachments or [])
     return _send(
-        config.CARRIER_EMAIL,
+        config.carrier_email(),
         f"General Liability Notice of Loss — {f.get('parent_co_name', '')} — DOA {f.get('date_of_accident', '')}",
         f"""<p>Please find attached a Broadspire General Liability Reporting Form
         (incident reference {h(doc['id'])}) for {h(f.get('loss_location_name'), default='')},
         date of accident {h(f.get('date_of_accident'), default='')}.</p>
         <p>Contact: {h(f.get('reported_by_name'), default='')}, {h(f.get('business_phone'), default='')}.</p>""",
-        attachments=atts, cc=[config.APPROVER_EMAIL])
+        attachments=atts, cc=[config.approver_email()])
