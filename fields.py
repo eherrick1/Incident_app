@@ -19,16 +19,18 @@ NARRATIVE_FIELDS = [
 # cell: xlsx coordinate the value is written to on fill-back (None = web-only)
 FIELDS = [
     # ---- Gate: answered first, decides which sections below apply -----------
-    dict(key="type_of_loss", label="What kind of loss is this?", section="Start here",
+    dict(key="type_of_loss", label="Was someone hurt, or was something damaged?", section="Start here",
          type="choice", required=True, choices=["injury", "property", "both"],
+         choice_labels={"injury": "Someone was hurt", "property": "Something was damaged",
+                        "both": "Both"},
          cell={"injury": "F40", "property": "H40", "both": "J40"},
-         hint="Injury = a person was hurt. Property = something was damaged. "
-              "Both = a person was hurt AND something was damaged. Your answer "
-              "decides which sections you have to fill in — the rest stay hidden."),
+         hint="Your answer decides which questions come next — the rest stay hidden."),
 
     # ---- Header -------------------------------------------------------------
-    dict(key="emergency_claim", label="Is this an emergency claim?", section="Reporting Person & Accident Date/Time",
-         type="yn", required=False, cell={"yes": "H11", "no": "J11"}),
+    dict(key="emergency_claim", label="Does this need the adjuster urgently?", section="Reporting Person & Accident Date/Time",
+         type="yn", required=False, cell={"yes": "H11", "no": "J11"},
+         hint="Yes only for a death, someone admitted to hospital, or serious damage "
+              "the adjuster needs to see right away. Otherwise No."),
     dict(key="reported_by_name", label="Reported by (person's name)", section="Reporting Person & Accident Date/Time",
          type="text", required=True, cell="D12"),
     dict(key="reported_by_title", label="Your job title (e.g. Front Desk Manager, GM)", section="Reporting Person & Accident Date/Time",
@@ -37,11 +39,16 @@ FIELDS = [
          type="phone", required=False, cell="G13"),
     dict(key="reported_by_phone_ext", label="Your ext.", section="Reporting Person & Accident Date/Time",
          type="text", required=False, cell="J13"),
+    # Fax boxes stay on the carrier form (and are read off uploads) but aren't
+    # asked on screen: display=False renders them as hidden inputs.
     dict(key="reported_by_fax", label="Your fax number", section="Reporting Person & Accident Date/Time",
-         type="phone", required=False, cell="C14",
-         hint="Leave blank if you don't have one — don't type N/A."),
+         type="phone", required=False, cell="C14", display=False),
+    # It's where "changes requested" and "approved" emails go, so the online form
+    # insists on it (form_required). It doesn't block approval, though: paper
+    # forms that arrive by upload often have no email, and the GM gets copied.
     dict(key="reported_by_email", label="Your e-mail address", section="Reporting Person & Accident Date/Time",
-         type="email", required=False, cell="G14"),
+         type="email", required=False, form_required=True, cell="G14",
+         hint="We'll email you if the reviewer needs anything, and when it's approved."),
     dict(key="date_of_accident", label="Date of accident (MM/DD/YYYY)", section="Reporting Person & Accident Date/Time",
          type="date", required=True, cell="D15"),
     dict(key="time_of_accident", label="Time of accident (HH:MM AM/PM)", section="Reporting Person & Accident Date/Time",
@@ -65,15 +72,15 @@ FIELDS = [
     dict(key="business_phone_ext", label="Hotel ext.", section="A. Local Business Address",
          type="text", required=False, cell="F20"),
     dict(key="business_fax", label="Hotel fax number", section="A. Local Business Address",
-         type="phone", required=False, cell="I20",
-         hint="Leave blank if the property has no fax — don't type N/A."),
+         type="phone", required=False, cell="I20", display=False),
     dict(key="location_code", label="Location code (3-letter property code)",
          section="A. Local Business Address", type="text", required=True, cell="C21"),
     dict(key="policy_number", label="Policy number", section="A. Local Business Address",
-         type="text", required=False, cell="H21"),
+         type="text", required=False, cell="H21",
+         hint="Filled in from the hotel list. Leave blank if you don't know it."),
 
     # ---- B. Loss location -----------------------------------------------------
-    dict(key="loss_location_name", label="Hotel / property name", section="B. Loss Location",
+    dict(key="loss_location_name", label="Hotel name", section="B. Loss Location",
          type="text", required=True, cell="D23"),
     dict(key="on_insured_premises", label="Did this happen on hotel property?",
          section="B. Loss Location", type="yn", required=True,
@@ -263,10 +270,14 @@ FIELDS = [
          type="date", required=False, cell="I85"),
 
     # ---- J. Witnesses ---------------------------------------------------------
+    # The carrier form has no yes/no for witnesses; "None" in the first name box
+    # is its convention. Asking the question instead of making people type
+    # "None" — fill_xlsx writes "None" back when the answer is No.
+    dict(key="any_witnesses", label="Did anyone see it happen?", section="J. Witnesses",
+         type="yn", required="no_witness_named", cell=None,
+         hint="A witness is someone who saw it happen — not someone the guest told afterward."),
     dict(key="witness1_name", label="Witness 1 — name", section="J. Witnesses",
-         type="text", required=True, cell="B87",
-         hint='Type "None" if nobody witnessed it. A witness is someone who saw '
-              'it happen — not someone the guest told afterward.'),
+         type="text", required="witnesses_seen", cell="B87"),
     dict(key="witness1_address", label="Witness 1 — address", section="J. Witnesses",
          type="text", required=False, cell="C88"),
     dict(key="witness1_city_state_zip", label="Witness 1 — City, State, Zip", section="J. Witnesses",
@@ -293,11 +304,76 @@ FIELDS = [
               "\"What happened?\" above."),
 ]
 
+# --------------------------------------------------------------------------- #
+# Screen layout
+#
+# FIELDS above is written in the carrier form's order, section letters and all,
+# because that's the workbook it fills. People don't think in that order: they
+# start with their hotel and what happened, not the named insured. LAYOUT is the
+# order the online form asks in, and it renames the sections in plain words.
+# The Excel fill-back is unaffected: every answer still goes to its own cell.
+# --------------------------------------------------------------------------- #
+LAYOUT = [
+    ("Hotel details", [
+        "loss_location_name", "parent_co_name", "subsidiary_name", "business_address",
+        "business_city_state_zip", "business_county", "business_phone", "business_phone_ext",
+        "business_fax", "location_code", "policy_number"]),
+    ("About you", [
+        "reported_by_name", "reported_by_title", "reported_by_phone", "reported_by_phone_ext",
+        "reported_by_email", "reported_by_fax"]),
+    ("What happened", [
+        "type_of_loss", "date_of_accident", "time_of_accident", "notification_date",
+        "on_insured_premises", "offsite_address", "offsite_city_state_zip", "offsite_county",
+        "accident_description", "authority_contacted", "authority_name",
+        "authority_report_number"]),
+    ("The injured person", [
+        "injured_name", "injury_illness_description", "injured_person_doing",
+        "removed_via_ambulance", "fatality", "injured_address", "injured_city_state_zip",
+        "injured_home_phone", "injured_work_phone", "injured_dob", "injured_age",
+        "injured_gender"]),
+    ("Medical treatment", [
+        "injured_taken_to", "medical_facility_name", "physician_name", "medical_address",
+        "medical_city_state_zip", "medical_phone"]),
+    ("Damaged property", [
+        "damaged_property_vehicle", "vehicle_year", "vehicle_make", "vehicle_model",
+        "vehicle_plate_state", "vehicle_plate_number", "property_description",
+        "damage_description", "estimated_damage_amount", "damage_when_to_view",
+        "damage_where_to_view"]),
+    ("Owner of the damaged property", [
+        "property_owner_type", "company_owner_name", "personal_owner_name", "owner_address",
+        "owner_city_state_zip", "owner_residence_phone", "owner_work_phone"]),
+    ("Witnesses", [
+        "any_witnesses", "witness1_name", "witness1_address", "witness1_city_state_zip",
+        "witness1_phone", "witness2_name", "witness2_address", "witness2_city_state_zip",
+        "witness2_phone"]),
+    ("Adjuster contact", [
+        "reporter_is_contact", "contact_person", "contact_title", "contact_phone",
+        "contact_email", "emergency_claim"]),
+    ("Product (if a product caused it)", [
+        "product_name", "product_purchase_date", "product_description", "product_supplier",
+        "product_serial", "product_installed", "product_installed_date"]),
+    ("Anything else", ["general_remarks"]),
+]
+
+
+def _apply_layout(fields):
+    by_key = {f["key"]: f for f in fields}
+    laid_out = [k for _s, keys in LAYOUT for k in keys]
+    assert sorted(laid_out) == sorted(by_key), (
+        "LAYOUT must list every field exactly once: "
+        f"missing {sorted(set(by_key) - set(laid_out))}, "
+        f"extra {sorted(set(laid_out) - set(by_key))}")
+    out = []
+    for section, keys in LAYOUT:
+        for k in keys:
+            out.append(dict(by_key[k], section=section))
+    return out
+
+
+FIELDS = _apply_layout(FIELDS)
 FIELDS_BY_KEY = {f["key"]: f for f in FIELDS}
-SECTIONS = []
-for _f in FIELDS:
-    if _f["section"] not in SECTIONS:
-        SECTIONS.append(_f["section"])
+SECTIONS = [s for s, _keys in LAYOUT]
+HOTEL_SECTION = "Hotel details"
 
 
 def _val(record, key):
@@ -320,6 +396,10 @@ CONDITIONS = {
                                   and _val(r, "damaged_property_vehicle") == "yes"),
     "nonvehicle_property_damaged": lambda r: (_val(r, "type_of_loss") in ("property", "both")
                                               and _val(r, "damaged_property_vehicle") == "no"),
+    # Ask "did anyone see it?" unless a witness is already named (older reports
+    # and uploaded workbooks carry the name, or "None", without the question).
+    "no_witness_named": lambda r: not _val(r, "witness1_name"),
+    "witnesses_seen": lambda r: _val(r, "any_witnesses") == "yes",
     # company_owned / personally_owned used to gate the Section H owner names.
     # Section H is optional now (see the note there), so nothing references them.
 }
@@ -347,31 +427,29 @@ _INJURY = [dict(field="type_of_loss", values=["injury", "both"])]
 _PROPERTY = [dict(field="type_of_loss", values=["property", "both"])]
 
 SECTION_VISIBILITY = {
-    "E. Injured Person": _INJURY,
-    "F. Medical Facility": _INJURY,
-    "G. Damaged Property": _PROPERTY,
-    "H. Owner of Damaged Property": _PROPERTY,
+    "The injured person": _INJURY,
+    "Medical treatment": _INJURY,
+    "Damaged property": _PROPERTY,
+    "Owner of the damaged property": _PROPERTY,
 }
 
 # Sections that are rare enough to stay collapsed until someone opens them.
-OPTIONAL_SECTIONS = ["I. Product (If Applicable)"]
+OPTIONAL_SECTIONS = ["Product (if a product caused it)"]
 
 # Short plain-English blurb shown under each section heading on the form.
 SECTION_NOTES = {
-    "Start here": "Answer this first — it decides which sections you'll be asked to fill in.",
-    "Reporting Person & Accident Date/Time": "Who is filing this report, and when the incident happened.",
-    "A. Local Business Address": "The hotel's own details. Use the picker above and these fill themselves in.",
-    "B. Loss Location": "Where the incident happened.",
-    "C. Insured Contact": "Who the insurance adjuster should call about this claim.",
-    "D. Loss Information": "The incident itself.",
-    "E. Injured Person": "The person who was hurt — their details, not the hotel's.",
-    "F. Medical Facility": "Only if they were treated somewhere. Skip it if they refused treatment.",
-    "G. Damaged Property": "What was damaged.",
-    "H. Owner of Damaged Property": "Who owns the damaged item. Often the guest — but say so explicitly.",
-    "I. Product (If Applicable)": "Rare. Only if a product the hotel supplied caused the loss "
-                                  "(e.g. food, an appliance, a piece of furniture that gave way).",
-    "J. Witnesses": "People who saw it happen.",
-    "K. General Remarks": "Anything that happened after the incident.",
+    "Hotel details": "The hotel's own details, as they go on the carrier form.",
+    "About you": "Who is filing this report.",
+    "What happened": "When and where it happened, and what happened.",
+    "The injured person": "The person who was hurt — their details, not the hotel's.",
+    "Medical treatment": "Only if they were treated somewhere. Skip it if they refused treatment.",
+    "Damaged property": "What was damaged.",
+    "Owner of the damaged property": "Who owns the damaged item. Often the guest — but say so explicitly.",
+    "Witnesses": "People who saw it happen.",
+    "Adjuster contact": "Who the insurance adjuster should call about this claim.",
+    "Product (if a product caused it)": "Rare. Only if a product the hotel supplied caused the loss "
+                                        "(e.g. food, an appliance, a piece of furniture that gave way).",
+    "Anything else": "Anything that happened after the incident.",
 }
 
 FIELD_VISIBILITY = {
@@ -401,6 +479,10 @@ FIELD_VISIBILITY = {
     "personal_owner_name": _PROPERTY + [dict(field="property_owner_type", values=["personally"])],
 
     "product_installed_date": [dict(field="product_installed", values=["yes"])],
+
+    **{k: [dict(field="any_witnesses", values=["yes"])] for k in (
+        "witness1_name", "witness1_address", "witness1_city_state_zip", "witness1_phone",
+        "witness2_name", "witness2_address", "witness2_city_state_zip", "witness2_phone")},
 }
 
 
@@ -553,6 +635,39 @@ def strip_inapplicable(record):
             del cleaned[key]
             dropped.append(key)
     return cleaned, dropped
+
+
+_NO_WITNESS = {"none", "none.", "n/a", "na", "no", "nobody", "no one", "no-one",
+               "no witnesses", "no witness", "unwitnessed"}
+
+
+def derive(record, hotels=()):
+    """Fill in answers the form no longer asks for, from answers it does.
+
+    - "Did anyone see it?": older reports and uploaded workbooks carry a witness
+      name (or "None") without the question, so answer it from the name.
+    - Policy number and hotel name come from the hotel list by location code,
+      so nobody has to know or type them.
+    Never overwrites something already answered. Returns a new dict.
+    """
+    r = dict(record)
+    w = (r.get("witness1_name") or "").strip()
+    if not r.get("any_witnesses"):
+        if w.lower() in _NO_WITNESS:
+            r["any_witnesses"] = "no"
+        elif w:
+            r["any_witnesses"] = "yes"
+    if r.get("any_witnesses") == "no" and w.lower() in _NO_WITNESS:
+        r.pop("witness1_name", None)   # the "None" placeholder; fill_xlsx writes it back
+    code = (r.get("location_code") or "").strip().upper()
+    hotel = next((h for h in hotels if (h.get("location_code") or "").upper() == code), None) \
+        if code else None
+    if hotel:
+        if not r.get("policy_number") and hotel.get("policy_number"):
+            r["policy_number"] = hotel["policy_number"]
+        if not r.get("loss_location_name") and hotel.get("name"):
+            r["loss_location_name"] = hotel["name"]
+    return r
 
 
 def visibility_payload():

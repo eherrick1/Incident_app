@@ -105,3 +105,6 @@ table.list th { background: #eef2f7; }
 .attachlist li { margin: .4rem 0; }
 .attachthumb { max-width: 240px; max-height: 180px; border: 1px solid var(--line);
                border-radius: 6px; margin-top: .25rem; }
+
+/* The writing guide sits in the grid beside the description box. */
+.grid > .hints { grid-column: 1 / -1; }

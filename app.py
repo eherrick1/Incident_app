@@ -203,7 +203,7 @@ def _reject_cross_origin_writes():
                            request.method, request.path, origin)
         abort(403, "Cross-site form submission refused.")
     return None
-app.jinja_env.globals.update(SECTION_NOTES=F.SECTION_NOTES,
+app.jinja_env.globals.update(SECTION_NOTES=F.SECTION_NOTES, HOTEL_SECTION=F.HOTEL_SECTION,
                              OPTIONAL_SECTIONS=F.OPTIONAL_SECTIONS)
 
 
@@ -350,6 +350,9 @@ def _drop_inapplicable(doc):
     The browser hides those fields, but a stale value can still be posted (the
     reporter filled them in, then changed the loss type). Clearing them here is
     what stops the reviewer having to blank them by hand. Audited, never silent."""
+    # Answers the form fills in for itself: witness yes/no from a typed name,
+    # policy number and hotel name from the hotel list.
+    doc["fields"] = F.derive(doc["fields"], _hotels())
     cleaned, dropped = F.strip_inapplicable(doc["fields"])
     if dropped:
         doc["fields"] = cleaned
@@ -540,7 +543,7 @@ def confirm(incident_id):
         _finalize_submission(doc)
         return redirect(url_for("submitted", incident_id=doc["id"]))
     return render_template("form.html", mode="confirm", fields=F.FIELDS, sections=F.SECTIONS,
-                           values=doc["fields"], hints=hints,
+                           values=F.derive(doc["fields"], _hotels()), hints=hints,
                            attachments=_attachment_names(doc),
                            action=url_for("confirm", incident_id=incident_id),
                            conditions_json=_conditions_for_js(), hotels=_hotels())
@@ -577,7 +580,7 @@ def revise(incident_id):
         _finalize_submission(doc)
         return redirect(url_for("submitted", incident_id=doc["id"]))
     return render_template("form.html", mode="revise", fields=F.FIELDS, sections=F.SECTIONS,
-                           values=doc["fields"], hints=hints, notes=doc.get("change_notes", ""),
+                           values=F.derive(doc["fields"], _hotels()), hints=hints, notes=doc.get("change_notes", ""),
                            attachments=_attachment_names(doc),
                            action=url_for("revise", incident_id=incident_id) + f"?sig={sig}",
                            conditions_json=_conditions_for_js(), hotels=_hotels())

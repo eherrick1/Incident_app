@@ -69,6 +69,11 @@ def fill_xlsx(record_fields: dict) -> bytes:
             if f["type"] == "money":
                 out = out if out.startswith("$") else f"${out}"
             ws[cell] = excel_safe(out)
+    # The carrier form's way of saying "no witnesses" is "None" in the first
+    # witness box; the online form asks Yes/No instead (fields.any_witnesses).
+    if (str(record_fields.get("any_witnesses", "")).lower() == "no"
+            and not record_fields.get("witness1_name")):
+        ws[F.FIELDS_BY_KEY["witness1_name"]["cell"]] = "None"
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

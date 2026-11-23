@@ -342,7 +342,7 @@ def test_hotel_picker_on_form():
     # renamed labels present
     assert "Your job title" in page
     assert "Were police, fire or EMS called?" in page
-    assert "Reporting Person &amp; Accident Date/Time" in page or "Reporting Person & Accident Date/Time" in page
+    assert "About you" in page and "What happened" in page
 
 
 def test_review_link_does_not_grant_access_to_other_incidents():
