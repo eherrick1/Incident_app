@@ -76,8 +76,8 @@ def _bool(name, default):
         return default
     return v.strip().lower() in ("1", "true", "yes", "on")
 
-APPROVER_EMAIL = os.environ.get("APPROVER_EMAIL", "edwardherrick@gmail.com")
-APPROVER_NAME = os.environ.get("APPROVER_NAME", "Edward Herrick")
+APPROVER_EMAIL = os.environ.get("APPROVER_EMAIL", "")
+APPROVER_NAME = os.environ.get("APPROVER_NAME", "Approver")
 EMAIL_SENDER = os.environ.get("EMAIL_SENDER", "")
 EMAIL_USERNAME = os.environ.get("EMAIL_USERNAME", "")   # defaults to EMAIL_SENDER
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
